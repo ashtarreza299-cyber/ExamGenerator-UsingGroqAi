@@ -14,13 +14,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
 
-/**
- * Reads a .docx exam file and uses Groq AI to parse it into an ExamStructure:
- *   - header (university info, student name fields, etc.)
- *   - parts (each with a title and list of questions)
- *
- * Groq returns structured JSON which is then mapped to ExamStructure objects.
- */
+
 public class ExamStructureParser {
 
     private static final String API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -32,9 +26,6 @@ public class ExamStructureParser {
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
-    // ----------------------------------------------------------------
-    // System prompt — tells Groq to return structured JSON
-    // ----------------------------------------------------------------
 
     private static final String SYSTEM_PROMPT =
         "You are an exam document parser. Given raw exam text, extract and return ONLY a JSON object " +
@@ -66,14 +57,7 @@ public class ExamStructureParser {
         "- For MCQ, options must NOT include the A) B) C) D) prefix — just the text\n" +
         "- Return ONLY the JSON. No explanation. No markdown. No backticks.";
 
-    // ----------------------------------------------------------------
-    // Public API
-    // ----------------------------------------------------------------
 
-    /**
-     * Parse the given .docx file into an ExamStructure using Groq AI.
-     * Returns null if parsing fails.
-     */
     public static ExamStructure parse(File file, String apiKey) {
 
         // 1. Read all text from the Word file
@@ -94,9 +78,6 @@ public class ExamStructureParser {
         return parseJson(json);
     }
 
-    // ----------------------------------------------------------------
-    // Read .docx into plain text
-    // ----------------------------------------------------------------
 
     private static String readDocx(File file) {
 
@@ -118,9 +99,6 @@ public class ExamStructureParser {
         return sb.toString();
     }
 
-    // ----------------------------------------------------------------
-    // Call Groq API
-    // ----------------------------------------------------------------
 
     private static String callGroq(String examText, String apiKey) {
 
@@ -167,9 +145,6 @@ public class ExamStructureParser {
         }
     }
 
-    // ----------------------------------------------------------------
-    // Parse JSON response into ExamStructure
-    // ----------------------------------------------------------------
 
     private static ExamStructure parseJson(String json) {
 

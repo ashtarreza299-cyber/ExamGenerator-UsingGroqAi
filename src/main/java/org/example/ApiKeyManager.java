@@ -6,27 +6,12 @@ import java.io.*;
 import java.nio.file.*;
 import java.util.Properties;
 
-/**
- * Manages the Groq API key.
- * - On first launch: shows a one-time popup for the teacher to paste their key.
- * - On every launch after: loads the key silently from the saved file.
- * - Key is stored in: <user.home>/.examgenerator/config.properties
- */
 public class ApiKeyManager {
 
     private static final String CONFIG_DIR  = System.getProperty("user.home") + "/.examgenerator";
     private static final String CONFIG_FILE = CONFIG_DIR + "/config.properties";
     private static final String KEY_NAME    = "GROQ_API_KEY";
 
-    // ----------------------------------------------------------------
-    // Public API
-    // ----------------------------------------------------------------
-
-    /**
-     * Call this once when the app starts (before the main window opens).
-     * If no key is saved yet, shows the setup popup.
-     * Returns the key, or null if the teacher cancelled.
-     */
     public static String initialize() {
 
         String saved = loadKey();
@@ -39,9 +24,6 @@ public class ApiKeyManager {
         return showSetupDialog();
     }
 
-    /**
-     * Load the saved key. Returns null if not found.
-     */
     public static String loadKey() {
 
         File f = new File(CONFIG_FILE);
@@ -57,9 +39,6 @@ public class ApiKeyManager {
         }
     }
 
-    /**
-     * Save the key to disk.
-     */
     public static void saveKey(String key) {
 
         try {
@@ -73,10 +52,6 @@ public class ApiKeyManager {
             System.err.println("Could not save API key: " + e.getMessage());
         }
     }
-
-    // ----------------------------------------------------------------
-    // Setup dialog
-    // ----------------------------------------------------------------
 
     private static String showSetupDialog() {
 

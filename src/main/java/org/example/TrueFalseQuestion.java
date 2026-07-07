@@ -13,7 +13,7 @@ public class TrueFalseQuestion extends Question {
 
         StringBuilder builder = new StringBuilder();
 
-        builder.append(question).append("\n").append("True / False");
+        builder.append(question + "\n").append("True / False");
 
         return builder.toString();
     }

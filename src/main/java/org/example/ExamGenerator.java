@@ -3,7 +3,8 @@ package org.example;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.xwpf.usermodel.*;
-import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTBody;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr;
 
 import javax.swing.*;
 import java.io.*;
@@ -11,93 +12,68 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.*;
+import java.util.regex.*;
 
-/**
- * Generates shuffled exams for all students in one Word file.
- *
- * Strategy:
- *  1. Send the exam text to Groq — get back the index ranges of each
- *     question group (which paragraph indices belong to which part).
- *  2. For each student, copy the original document, then reorder
- *     only the question paragraphs within each part.
- *  3. Append all student copies into one output file with page breaks.
- *
- * All original formatting (fonts, bold, RTL Persian, tables, borders)
- * is preserved because we never rebuild — we only reorder.
- */
 public class ExamGenerator {
 
     private static final String API_URL = "https://api.groq.com/openai/v1/chat/completions";
-    private static final String MODEL   = "llama-3.3-70b-versatile"; // better for Persian
+    private static final String MODEL   = "llama-3.1-8b-instant"; // Fast model — works well on VPN
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(8))
+            .connectTimeout(Duration.ofSeconds(20))
             .build();
 
-    // ----------------------------------------------------------------
-    // System prompt — asks Groq to identify paragraph index ranges
-    // of each question within each part
-    // ----------------------------------------------------------------
-
     private static final String SYSTEM_PROMPT =
-        "You are an exam document analyzer. You will receive a list of paragraphs from an exam " +
-        "Word file, each prefixed with its index like: '0: Kabul University', '1: Name: ___', etc.\n\n" +
-        "Your job is to identify the exam PARTS and within each part, identify which paragraph " +
-        "index ranges belong to each individual QUESTION (including its options/lines).\n\n" +
-        "Return ONLY a JSON array. No markdown. No explanation. Example:\n" +
-        "[\n" +
-        "  {\n" +
-        "    \"partTitle\": \"Part One: MCQ\",\n" +
-        "    \"questions\": [\n" +
-        "      {\"start\": 5, \"end\": 9},\n" +
-        "      {\"start\": 10, \"end\": 14}\n" +
-        "    ]\n" +
-        "  },\n" +
-        "  {\n" +
-        "    \"partTitle\": \"Part Two: Descriptive\",\n" +
-        "    \"questions\": [\n" +
-        "      {\"start\": 16, \"end\": 16},\n" +
-        "      {\"start\": 17, \"end\": 17}\n" +
-        "    ]\n" +
-        "  }\n" +
-        "]\n\n" +
-        "Rules:\n" +
-        "- start and end are inclusive paragraph indices\n" +
-        "- A question's range includes its stem AND all its option lines\n" +
-        "- Do NOT include header lines, part titles, instructions, name fields in any question range\n" +
-        "- The document may be in Persian, English, or mixed — handle both\n" +
-        "- Return ONLY the JSON array. Nothing else.";
+            "You are an expert exam analyzer. You receive preprocessed exam text.\n\n" +
+                    "QUESTION TYPES:\n" +
+                    "  MCQ         = Has options A) B) C) D) — options may contain [IMAGE] for image options\n" +
+                    "  TF          = Has True/False as answer choices\n" +
+                    "  BLANK       = Has blanks like '______' or '__________'\n" +
+                    "  DESCRIPTIVE = Open ended: explain, describe, compare, write, discuss\n\n" +
+                    "RULES:\n" +
+                    "  - Extract EVERY question. DO NOT classify everything as DESCRIPTIVE.\n" +
+                    "  - [IMAGE] means there is a picture at that position\n" +
+                    "  - For MCQ: options array = text of each option (use '[IMAGE]' if option is image)\n" +
+                    "  - For TF, BLANK, DESCRIPTIVE: options = []\n" +
+                    "  - Ignore: university, faculty, date, name fields, part titles, marks, Good Luck\n" +
+                    "  - Document may be Persian, English, Dari, or mixed\n\n" +
+                    "Return ONLY a JSON array:\n" +
+                    "[\n" +
+                    "  {\n" +
+                    "    \"partTitle\": \"Part One: MCQ\",\n" +
+                    "    \"questions\": [\n" +
+                    "      {\"stem\": \"What is Java?\", \"type\": \"MCQ\", \"options\": [\"A Database\", \"A Language\", \"A Browser\", \"An OS\"]},\n" +
+                    "      {\"stem\": \"What is the default value? [IMAGE]\", \"type\": \"MCQ\", \"options\": [\"[IMAGE]\", \"[IMAGE]\", \"[IMAGE]\", \"[IMAGE]\"]},\n" +
+                    "      {\"stem\": \"Java is platform independent.\", \"type\": \"TF\", \"options\": []},\n" +
+                    "      {\"stem\": \"The ______ keyword creates an object.\", \"type\": \"BLANK\", \"options\": []},\n" +
+                    "      {\"stem\": \"Explain polymorphism.\", \"type\": \"DESCRIPTIVE\", \"options\": []}\n" +
+                    "    ]\n" +
+                    "  }\n" +
+                    "]";
 
-    // ----------------------------------------------------------------
-    // Public entry point — called from DashBoardPanel.generateExam()
-    // ----------------------------------------------------------------
+    // ================================================================
+    // Public entry point
+    // ================================================================
 
     public static void generate(JPanel parent, Model model) {
 
-        // Safety checks
         if (model.getOutputFolder() == null) {
-            JOptionPane.showMessageDialog(parent, "Please select output folder!");
-            return;
+            JOptionPane.showMessageDialog(parent, "Please select output folder!"); return;
         }
         if (model.getSelectedFile() == null) {
-            JOptionPane.showMessageDialog(parent, "Please load a Word file first!");
-            return;
+            JOptionPane.showMessageDialog(parent, "Please load a Word file first!"); return;
         }
         int studentCount = model.getNumberOfStudents();
         if (studentCount <= 0) {
-            JOptionPane.showMessageDialog(parent, "Please set number of students!");
-            return;
+            JOptionPane.showMessageDialog(parent, "Please set number of students!"); return;
         }
-
         String apiKey = ApiKeyManager.loadKey();
         if (apiKey == null) {
             JOptionPane.showMessageDialog(parent,
-                    "Groq API key not found!\nPlease restart the app to set up your key.");
-            return;
+                    "Groq API key not found!\nPlease restart the app."); return;
         }
 
-        // Run in background so UI stays responsive
         JOptionPane.showMessageDialog(parent,
                 "Analyzing exam structure...\nThis may take a few seconds.");
 
@@ -106,136 +82,132 @@ public class ExamGenerator {
             @Override
             protected Void doInBackground() throws Exception {
 
-                // 1. Read all paragraphs from original file
-                List<String> paragraphTexts = new ArrayList<>();
-                try (FileInputStream fis = new FileInputStream(model.getSelectedFile());
-                     XWPFDocument doc = new XWPFDocument(fis)) {
-                    for (XWPFParagraph p : doc.getParagraphs()) {
-                        paragraphTexts.add(p.getText() == null ? "" : p.getText());
-                    }
+                // ── 1. Read original paragraphs ───────────────────
+                List<ParaInfo> paras = readParagraphs(model.getSelectedFile());
+
+                // ── 2. Preprocess → expand tabs, mark images ──────
+                List<ParaInfo> processed = preprocess(paras);
+
+                // ── 3. Build text for Groq ────────────────────────
+                StringBuilder sb = new StringBuilder();
+                for (ParaInfo p : processed) {
+                    if (!p.displayText.isBlank()) sb.append(p.displayText).append("\n");
                 }
 
-                // 2. Build indexed paragraph list for Groq
-                StringBuilder indexed = new StringBuilder();
-                for (int i = 0; i < paragraphTexts.size(); i++) {
-                    indexed.append(i).append(": ").append(paragraphTexts.get(i)).append("\n");
-                }
+                System.out.println("=== Sending to Groq ===\n" + sb.toString().substring(0, Math.min(1000, sb.length())));
 
-                // 3. Ask Groq to identify question index ranges per part
-                List<PartInfo> parts = analyzeWithGroq(indexed.toString(), apiKey);
+                // ── 4. Ask Groq ───────────────────────────────────
+                List<PartInfo> parts = analyzeWithGroq(sb.toString(), apiKey);
                 if (parts == null || parts.isEmpty()) {
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(parent,
-                                    "Could not analyze exam structure. Please check your file."));
+                                    "Could not analyze exam structure.\nPlease try again."));
                     return null;
                 }
 
-                // 4. Build output document
+                System.out.println("Groq found " + parts.size() + " parts, " +
+                        parts.stream().mapToInt(p -> p.questions.size()).sum() + " questions");
+
+                // ── 5. Match Groq text → original paragraph indices ──
+                for (PartInfo part : parts) {
+                    for (QuestionInfo q : part.questions) {
+                        q.stemParaIdx = findParaIndex(processed, q.stemText, -1);
+                        for (int oi = 0; oi < q.optionTexts.size(); oi++) {
+                            String optText = q.optionTexts.get(oi);
+                            int idx = "[IMAGE]".equals(optText)
+                                    ? findImageOptionIndex(processed, q.stemParaIdx, oi)
+                                    : findParaIndex(processed, optText, q.stemParaIdx);
+                            q.optionParaIdxs.add(idx);
+                        }
+                    }
+                }
+
+                // ── 6. Collect all question original para indices ──
+                Set<Integer> questionOrigIdx = new HashSet<>();
+                for (PartInfo part : parts) {
+                    for (QuestionInfo q : part.questions) {
+                        addOrigIdx(questionOrigIdx, processed, q.stemParaIdx);
+                        for (int idx : q.optionParaIdxs) addOrigIdx(questionOrigIdx, processed, idx);
+                    }
+                }
+
+                // ── 7. Part start map (by original para index) ────
+                Map<Integer, PartInfo> partByOrigStart = new LinkedHashMap<>();
+                for (PartInfo part : parts) {
+                    for (QuestionInfo q : part.questions) {
+                        if (q.stemParaIdx >= 0) {
+                            int origIdx = processed.get(q.stemParaIdx).origIndex;
+                            partByOrigStart.put(origIdx, part);
+                            break;
+                        }
+                    }
+                }
+
+                // ── 8. Generate output document ───────────────────
                 try (XWPFDocument outputDoc = new XWPFDocument()) {
 
                     for (int s = 0; s < studentCount; s++) {
 
-                        // Re-read original doc for each student to get fresh paragraphs
-                        try (FileInputStream fis =
-                                     new FileInputStream(model.getSelectedFile());
+                        try (FileInputStream fis = new FileInputStream(model.getSelectedFile());
                              XWPFDocument srcDoc = new XWPFDocument(fis)) {
 
-                            List<XWPFParagraph> allParas = srcDoc.getParagraphs();
+                            List<XWPFParagraph> allOrigParas = srcDoc.getParagraphs();
 
-                            // Track which paragraph indices are question paragraphs
-                            // so we know what to reorder vs what to copy as-is
-                            Set<Integer> questionIndices = new HashSet<>();
-                            for (PartInfo part : parts) {
-                                for (int[] range : part.questionRanges) {
-                                    for (int i = range[0]; i <= range[1]; i++) {
-                                        questionIndices.add(i);
-                                    }
-                                }
-                            }
+                            // Build per-student filtered+shuffled parts
+                            Map<Integer, PartInfo> studentParts = buildStudentParts(parts, processed, model, partByOrigStart);
 
-                            // Build shuffled question order per part
-                            Map<Integer, List<int[]>> shuffledParts = new LinkedHashMap<>();
-                            for (PartInfo part : parts) {
-                                List<int[]> ranges = new ArrayList<>(part.questionRanges);
-                                if (model.isShufflingOn()) Collections.shuffle(ranges);
-                                // Map first paragraph index of part to shuffled ranges
-                                shuffledParts.put(part.questionRanges.get(0)[0], ranges);
-                            }
-
-                            // Write student label
-                            XWPFParagraph labelPara = outputDoc.createParagraph();
-                            labelPara.setAlignment(ParagraphAlignment.CENTER);
-                            XWPFRun labelRun = labelPara.createRun();
-                            labelRun.setText("Student " + (s + 1));
-                            labelRun.setBold(true);
-                            labelRun.setFontSize(14);
-                            outputDoc.createParagraph(); // empty line after label
-
-                            // Walk through all paragraphs in order
+                            // Walk original paragraphs
                             int i = 0;
-                            while (i < allParas.size()) {
+                            while (i < allOrigParas.size()) {
 
-                                // Check if this index is the START of a question group
-                                // in any part, and if we have a shuffled order for it
-                                PartInfo currentPart = getPartStartingAt(parts, i);
+                                PartInfo partAtI = partByOrigStart.get(i);
 
-                                if (currentPart != null) {
-                                    // Write all questions in shuffled order
-                                    List<int[]> shuffled =
-                                            shuffledParts.get(currentPart.questionRanges.get(0)[0]);
-                                    int qNum = 1;
-                                    for (int[] range : shuffled) {
-                                        // Write question number on first paragraph of question
-                                        boolean firstLine = true;
-                                        for (int qi = range[0]; qi <= range[1]; qi++) {
-                                            if (qi < allParas.size()) {
-                                                copyParagraph(allParas.get(qi),
-                                                        outputDoc, firstLine ? qNum : -1);
-                                                firstLine = false;
-                                            }
+                                if (partAtI != null) {
+                                    // Find corresponding student part
+                                    PartInfo studentPart = studentParts.get(i);
+                                    // Find original part to know how far to skip
+                                    int skipTo = getPartLastOrigIdx(partAtI, processed) + 1;
+
+                                    if (studentPart != null && !studentPart.questions.isEmpty()) {
+                                        int qNum = 1;
+                                        for (QuestionInfo q : studentPart.questions) {
+                                            writeQuestion(q, qNum, allOrigParas, processed,
+                                                    srcDoc, outputDoc, model);
+                                            qNum++;
+                                            outputDoc.createParagraph(); // spacing
                                         }
-                                        qNum++;
-                                        outputDoc.createParagraph(); // spacing between questions
                                     }
-                                    // Skip past all paragraphs belonging to this part
-                                    int lastIdx = currentPart.questionRanges
-                                            .get(currentPart.questionRanges.size() - 1)[1];
-                                    i = lastIdx + 1;
 
-                                } else if (questionIndices.contains(i)) {
-                                    // Already handled above — skip
-                                    i++;
+                                    i = skipTo;
+
+                                } else if (questionOrigIdx.contains(i)) {
+                                    i++; // skip — already written above
                                 } else {
-                                    // Non-question paragraph — copy as-is (header, title, etc.)
-                                    copyParagraph(allParas.get(i), outputDoc, -1);
+                                    // Non-question para — copy as-is (header, titles, etc.)
+                                    copyParagraphWithImages(allOrigParas.get(i), outputDoc, -1);
                                     i++;
                                 }
                             }
 
-                            // Page break between students
                             if (s < studentCount - 1) {
-                                XWPFParagraph pb = outputDoc.createParagraph();
-                                pb.setPageBreak(true);
+                                outputDoc.createParagraph().setPageBreak(true);
                             }
                         }
                     }
 
-                    // 5. Save output file
-                    String fileName = (model.getFileNaming() != null
-                            && !model.getFileNaming().isBlank())
+                    // Save
+                    String fn = (model.getFileNaming() != null && !model.getFileNaming().isBlank())
                             ? model.getFileNaming() : "Exam";
-                    String finalName = fileName + "_" + model.getStartNumber() + ".docx";
-                    File outFile = new File(model.getOutputFolder(), finalName);
-
+                    File outFile = new File(model.getOutputFolder(),
+                            fn + "_" + model.getStartNumber() + ".docx");
                     try (FileOutputStream fos = new FileOutputStream(outFile)) {
                         outputDoc.write(fos);
                     }
 
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(parent,
-                                    "✓ Exam generated successfully!\n"
-                                    + studentCount + " student exams saved to:\n"
-                                    + outFile.getAbsolutePath()));
+                                    "✓ Exam generated!\n" + studentCount + " students → " +
+                                            outFile.getAbsolutePath()));
                 }
 
                 return null;
@@ -243,13 +215,10 @@ public class ExamGenerator {
 
             @Override
             protected void done() {
-                try {
-                    get(); // surface any exceptions
-                } catch (Exception ex) {
+                try { get(); } catch (Exception ex) {
                     ex.printStackTrace();
                     SwingUtilities.invokeLater(() ->
-                            JOptionPane.showMessageDialog(parent,
-                                    "Error generating exam: " + ex.getMessage()));
+                            JOptionPane.showMessageDialog(parent, "Error: " + ex.getMessage()));
                 }
             }
         };
@@ -257,163 +226,497 @@ public class ExamGenerator {
         worker.execute();
     }
 
-    // ----------------------------------------------------------------
-    // Ask Groq to identify question paragraph ranges per part
-    // ----------------------------------------------------------------
+    // ================================================================
+    // Step 1: Read paragraphs from docx
+    // ================================================================
 
-    private static List<PartInfo> analyzeWithGroq(String indexedText, String apiKey) {
-
-        try {
-            Map<String, Object> body = new HashMap<>();
-            body.put("model", MODEL);
-            body.put("max_tokens", 4000);
-            body.put("temperature", 0);
-            body.put("messages", List.of(
-                    Map.of("role", "system", "content", SYSTEM_PROMPT),
-                    Map.of("role", "user",   "content", indexedText)
-            ));
-
-            String requestBody = MAPPER.writeValueAsString(body);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(API_URL))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
-
-            HttpResponse<String> response =
-                    HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                System.err.println("Groq error " + response.statusCode());
-                return null;
+    private static List<ParaInfo> readParagraphs(File file) throws Exception {
+        List<ParaInfo> result = new ArrayList<>();
+        try (FileInputStream fis = new FileInputStream(file);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            int i = 0;
+            for (XWPFParagraph p : doc.getParagraphs()) {
+                String text = p.getText() == null ? "" : p.getText();
+                String xml  = p.getCTP().xmlText();
+                boolean hasImg = xml.contains("w:drawing") || xml.contains("w:pict");
+                result.add(new ParaInfo(i++, text, hasImg));
             }
-
-            String content = MAPPER.readTree(response.body())
-                    .path("choices").get(0)
-                    .path("message").path("content")
-                    .asText().trim();
-
-            return parsePartInfo(content);
-
-        } catch (Exception e) {
-            System.err.println("ExamGenerator Groq call failed: " + e.getMessage());
-            return null;
         }
+        return result;
     }
 
-    // ----------------------------------------------------------------
-    // Parse Groq JSON into PartInfo list
-    // ----------------------------------------------------------------
+    // ================================================================
+    // Step 2: Preprocess — expand inline options, mark images
+    // ================================================================
 
-    private static List<PartInfo> parsePartInfo(String json) {
+    private static List<ParaInfo> preprocess(List<ParaInfo> paras) {
+        List<ParaInfo> result = new ArrayList<>();
 
-        List<PartInfo> parts = new ArrayList<>();
+        // Pattern: "    A) text\t\tB) other" — two options on one line
+        Pattern twoOpts = Pattern.compile(
+                "(?i)^(\\s*[A-Da-d][.)\\]]\\s*.+?)\\t+([A-Da-d][.)\\]]\\s*.+)$"
+        );
 
-        try {
-            json = json.replaceAll("(?s)```json\\s*", "")
-                       .replaceAll("(?s)```\\s*", "")
-                       .trim();
+        for (ParaInfo p : paras) {
+            String text = p.rawText;
 
-            JsonNode array = MAPPER.readTree(json);
-            if (!array.isArray()) return null;
+            // Check for two options on one line (tab-separated)
+            Matcher m = twoOpts.matcher(text);
+            if (m.matches()) {
+                // Split into two separate option lines
+                String opt1 = m.group(1).trim();
+                String opt2 = m.group(2).trim();
 
-            for (JsonNode partNode : array) {
+                ParaInfo p1 = new ParaInfo(p.origIndex, opt1, false);
+                ParaInfo p2 = new ParaInfo(p.origIndex, opt2, false); // same origIndex — virtual
 
-                PartInfo part = new PartInfo();
-                part.title = partNode.path("partTitle").asText("");
-
-                JsonNode questionsNode = partNode.path("questions");
-                if (questionsNode.isArray()) {
-                    for (JsonNode q : questionsNode) {
-                        int start = q.path("start").asInt();
-                        int end   = q.path("end").asInt();
-                        part.questionRanges.add(new int[]{start, end});
-                    }
+                // If the original para had images, mark them
+                if (p.hasImage) {
+                    p1.hasImage = true;
+                    p1.displayText = buildDisplayText(opt1, true);
+                    p2.displayText = buildDisplayText(opt2, false);
+                } else {
+                    p1.displayText = opt1;
+                    p2.displayText = opt2;
                 }
 
-                if (!part.questionRanges.isEmpty()) parts.add(part);
+                result.add(p1);
+                result.add(p2);
+                continue;
             }
 
-        } catch (Exception e) {
-            System.err.println("ExamGenerator JSON parse failed: " + e.getMessage());
-            return null;
+            // Build display text with [IMAGE] marker
+            p.displayText = buildDisplayText(text, p.hasImage);
+            result.add(p);
         }
 
-        return parts;
+        return result;
     }
 
-    // ----------------------------------------------------------------
-    // Copy a paragraph from source doc to output doc
-    // If questionNumber >= 1, prepend "N. " to the first run
-    // ----------------------------------------------------------------
+    private static String buildDisplayText(String text, boolean hasImage) {
+        if (hasImage && text.isBlank()) return "[IMAGE]";
+        if (hasImage) return text + " [IMAGE]";
+        return text;
+    }
 
-    private static void copyParagraph(XWPFParagraph src,
-                                       XWPFDocument dest,
-                                       int questionNumber) {
-        XWPFParagraph newPara = dest.createParagraph();
+    // ================================================================
+    // Step 5: Match question text to paragraph index
+    // ================================================================
 
-        // Copy paragraph-level properties (alignment, RTL, spacing, etc.)
-        if (src.getCTP().getPPr() != null) {
-            newPara.getCTP().setPPr(
-                    (org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr)
-                    src.getCTP().getPPr().copy());
+    private static int findParaIndex(List<ParaInfo> paras, String queryText, int afterIdx) {
+        if (queryText == null || queryText.isBlank()) return -1;
+
+        // Clean query: remove number prefix, [IMAGE], lowercase
+        String clean = queryText
+                .replaceFirst("^\\s*\\d+[.)\\-]\\s*", "")
+                .replace("[IMAGE]", "").trim().toLowerCase();
+
+        int start = Math.max(0, afterIdx);
+
+        for (int i = start; i < paras.size(); i++) {
+            String paraClean = paras.get(i).rawText
+                    .replaceFirst("^\\s*\\d+[.)\\-]\\s*", "")
+                    .replaceFirst("(?i)^\\s*[A-Da-d][.)\\-]\\s*", "")
+                    .trim().toLowerCase();
+
+            if (!clean.isEmpty() && !paraClean.isEmpty()) {
+                if (paraClean.equals(clean)
+                        || (clean.length() > 8 && paraClean.contains(clean))
+                        || (paraClean.length() > 8 && clean.contains(paraClean))) {
+                    return i;
+                }
+            }
         }
+        return -1;
+    }
+
+    private static int findImageOptionIndex(List<ParaInfo> paras, int stemIdx, int optionOrder) {
+        // Find the Nth image option after the stem
+        int count = 0;
+        int start = stemIdx >= 0 ? stemIdx + 1 : 0;
+        for (int i = start; i < Math.min(paras.size(), start + 15); i++) {
+            if (paras.get(i).hasImage || paras.get(i).displayText.contains("[IMAGE]")) {
+                if (count == optionOrder) return i;
+                count++;
+            }
+        }
+        return -1;
+    }
+
+    private static void addOrigIdx(Set<Integer> set, List<ParaInfo> processed, int procIdx) {
+        if (procIdx >= 0 && procIdx < processed.size()) {
+            set.add(processed.get(procIdx).origIndex);
+        }
+    }
+
+    // ================================================================
+    // Step 7: Build student parts (filter + shuffle)
+    // ================================================================
+
+    private static Map<Integer, PartInfo> buildStudentParts(
+            List<PartInfo> parts,
+            List<ParaInfo> processed,
+            Model model,
+            Map<Integer, PartInfo> partByOrigStart) {
+
+        Map<Integer, PartInfo> result = new LinkedHashMap<>();
+
+        for (Map.Entry<Integer, PartInfo> entry : partByOrigStart.entrySet()) {
+            PartInfo part = entry.getValue();
+
+            List<QuestionInfo> filtered = new ArrayList<>();
+            for (QuestionInfo q : part.questions) {
+                if (shouldInclude(q.type, model)) filtered.add(q);
+            }
+
+            if (model.isShufflingOn()) {
+                List<QuestionInfo> mcq  = new ArrayList<>();
+                List<QuestionInfo> tf   = new ArrayList<>();
+                List<QuestionInfo> blnk = new ArrayList<>();
+                List<QuestionInfo> des  = new ArrayList<>();
+                for (QuestionInfo q : filtered) {
+                    switch (q.type) {
+                        case "MCQ"  -> mcq.add(q);
+                        case "TF"   -> tf.add(q);
+                        case "BLANK"-> blnk.add(q);
+                        default     -> des.add(q);
+                    }
+                }
+                if (model.isMcqShuffled())        Collections.shuffle(mcq);
+                if (model.isTrueFalseShuffled())  Collections.shuffle(tf);
+                if (model.isBlankSpaceShuffled()) Collections.shuffle(blnk);
+                if (model.isDesShuffled())        Collections.shuffle(des);
+
+                filtered.clear();
+                filtered.addAll(mcq);
+                filtered.addAll(tf);
+                filtered.addAll(blnk);
+                filtered.addAll(des);
+            }
+
+            if (!filtered.isEmpty()) {
+                PartInfo fp = new PartInfo();
+                fp.title = part.title;
+                fp.questions = filtered;
+                result.put(entry.getKey(), fp);
+            }
+        }
+
+        return result;
+    }
+
+    // ================================================================
+    // Step 8: Write a single question to output doc
+    // ================================================================
+
+    private static void writeQuestion(QuestionInfo q, int qNum,
+                                      List<XWPFParagraph> allOrigParas,
+                                      List<ParaInfo> processed,
+                                      XWPFDocument srcDoc,
+                                      XWPFDocument outputDoc,
+                                      Model model) {
+        // Write stem
+        if (q.stemParaIdx >= 0 && q.stemParaIdx < processed.size()) {
+            int origIdx = processed.get(q.stemParaIdx).origIndex;
+            if (origIdx < allOrigParas.size()) {
+                copyParagraphWithImages(allOrigParas.get(origIdx), outputDoc, qNum);
+            }
+        } else {
+            writeText(outputDoc, qNum + ". " + q.stemText);
+        }
+
+        if ("TF".equals(q.type)) {
+            XWPFParagraph tfPara = outputDoc.createParagraph();
+            XWPFRun tfRun = tfPara.createRun();
+            tfRun.setText("    True          False");
+            tfRun.setFontFamily("Arial");
+            tfRun.setFontSize(12);
+            return;
+        }
+
+        // Options — shuffle if enabled
+        List<Integer> optIdxs  = new ArrayList<>(q.optionParaIdxs);
+        List<String>  optTexts = new ArrayList<>(q.optionTexts);
+
+        if (model.isOptionShufflingOn() && !optIdxs.isEmpty()) {
+            List<Integer> order = new ArrayList<>();
+            for (int oi = 0; oi < optIdxs.size(); oi++) order.add(oi);
+            Collections.shuffle(order);
+            List<Integer> si = new ArrayList<>();
+            List<String> st = new ArrayList<>();
+            for (int oi : order) { si.add(optIdxs.get(oi)); st.add(optTexts.get(oi)); }
+            optIdxs = si; optTexts = st;
+        }
+
+        char letter = 'A';
+        for (int oi = 0; oi < optIdxs.size(); oi++) {
+            int procIdx = optIdxs.get(oi);
+            if (procIdx >= 0 && procIdx < processed.size()) {
+                int origIdx = processed.get(procIdx).origIndex;
+                if (origIdx < allOrigParas.size()) {
+                    copyOptionParagraphWithImages(allOrigParas.get(origIdx), outputDoc, letter++);
+                    continue;
+                }
+            }
+            // Fallback: write from text
+            String optText = oi < optTexts.size() ? optTexts.get(oi) : "";
+            writeText(outputDoc, "    " + letter++ + ") " + optText);
+        }
+    }
+
+    // ================================================================
+    // Get last original paragraph index of a part
+    // ================================================================
+
+    private static int getPartLastOrigIdx(PartInfo part, List<ParaInfo> processed) {
+        int last = 0;
+        for (QuestionInfo q : part.questions) {
+            if (q.stemParaIdx >= 0 && q.stemParaIdx < processed.size())
+                last = Math.max(last, processed.get(q.stemParaIdx).origIndex);
+            for (int idx : q.optionParaIdxs) {
+                if (idx >= 0 && idx < processed.size())
+                    last = Math.max(last, processed.get(idx).origIndex);
+            }
+        }
+        return last;
+    }
+
+    // ================================================================
+    // Copy paragraph preserving text formatting + images
+    // ================================================================
+
+    private static void copyParagraphWithImages(XWPFParagraph src,
+                                                XWPFDocument dest,
+                                                int questionNumber) {
+        XWPFParagraph newPara = dest.createParagraph();
+        if (src.getCTP().getPPr() != null)
+            newPara.getCTP().setPPr((CTPPr) src.getCTP().getPPr().copy());
 
         boolean firstRun = true;
-
         for (XWPFRun srcRun : src.getRuns()) {
-
+            List<XWPFPicture> pics = srcRun.getEmbeddedPictures();
             XWPFRun newRun = newPara.createRun();
+            if (srcRun.getCTR().getRPr() != null)
+                newRun.getCTR().setRPr((CTRPr) srcRun.getCTR().getRPr().copy());
 
-            // Copy run properties (font, size, bold, italic, color, RTL, etc.)
-            if (srcRun.getCTR().getRPr() != null) {
-                newRun.getCTR().setRPr(
-                        (org.openxmlformats.schemas.wordprocessingml.x2006.main.CTRPr)
-                        srcRun.getCTR().getRPr().copy());
+            if (!pics.isEmpty()) {
+                for (XWPFPicture pic : pics) copyImage(pic, srcRun, newRun);
+            } else {
+                String text = srcRun.getText(0);
+                if (text == null) text = "";
+                if (firstRun && questionNumber >= 1) {
+                    text = text.replaceFirst("^\\s*\\d+[.)\\-]\\s*", "").trim();
+                    text = questionNumber + ". " + text;
+                    firstRun = false;
+                }
+                newRun.setText(text);
             }
-
-            String text = srcRun.getText(0);
-            if (text == null) text = "";
-
-            // Prepend question number to first run of question stem
-            if (firstRun && questionNumber >= 1) {
-                text = questionNumber + ". " + text;
-                firstRun = false;
-            }
-
-            newRun.setText(text);
         }
+        if (src.getRuns().isEmpty() && questionNumber >= 1)
+            newPara.createRun().setText(questionNumber + ". ");
+    }
 
-        // If source had no runs but we need to write a question number
-        if (src.getRuns().isEmpty() && questionNumber >= 1) {
-            XWPFRun r = newPara.createRun();
-            r.setText(questionNumber + ". ");
+    private static void copyOptionParagraphWithImages(XWPFParagraph src,
+                                                      XWPFDocument dest,
+                                                      char newLetter) {
+        XWPFParagraph newPara = dest.createParagraph();
+        if (src.getCTP().getPPr() != null)
+            newPara.getCTP().setPPr((CTPPr) src.getCTP().getPPr().copy());
+
+        boolean firstRun = true;
+        for (XWPFRun srcRun : src.getRuns()) {
+            List<XWPFPicture> pics = srcRun.getEmbeddedPictures();
+            XWPFRun newRun = newPara.createRun();
+            if (srcRun.getCTR().getRPr() != null)
+                newRun.getCTR().setRPr((CTRPr) srcRun.getCTR().getRPr().copy());
+
+            if (!pics.isEmpty()) {
+                // Write new letter before the image
+                if (firstRun) { newRun.setText("    " + newLetter + ") "); firstRun = false; }
+                for (XWPFPicture pic : pics) copyImage(pic, srcRun, newRun);
+            } else {
+                String text = srcRun.getText(0);
+                if (text == null) text = "";
+                if (firstRun) {
+                    String leading = text.replaceAll("^(\\s*).*", "$1");
+                    String rest = text.replaceFirst("(?i)^\\s*[A-Da-d][.)\\-]\\s*", "")
+                            .replaceFirst("^\\s*[1-4][.)\\-]\\s*", "");
+                    text = leading + newLetter + ") " + rest;
+                    firstRun = false;
+                }
+                newRun.setText(text);
+            }
         }
     }
 
-    // ----------------------------------------------------------------
-    // Find if a part's questions start at paragraph index i
-    // ----------------------------------------------------------------
+    private static void copyImage(XWPFPicture pic, XWPFRun srcRun, XWPFRun destRun) {
+        try {
+            byte[] data  = pic.getPictureData().getData();
+            int picType  = pic.getPictureData().getPictureType();
+            int w = 4500000, h = 3600000; // default ~5cm × 4cm in EMUs
+            try {
+                String xml = srcRun.getCTR().xmlText();
+                Matcher mw = Pattern.compile("cx=\"(\\d+)\"").matcher(xml);
+                Matcher mh = Pattern.compile("cy=\"(\\d+)\"").matcher(xml);
+                if (mw.find()) w = Integer.parseInt(mw.group(1));
+                if (mh.find()) h = Integer.parseInt(mh.group(1));
+            } catch (Exception ignored) {}
+            destRun.addPicture(new ByteArrayInputStream(data), picType,
+                    pic.getPictureData().getFileName(), w, h);
+        } catch (Exception e) {
+            destRun.setText("[IMAGE]");
+        }
+    }
 
-    private static PartInfo getPartStartingAt(List<PartInfo> parts, int index) {
-        for (PartInfo part : parts) {
-            if (!part.questionRanges.isEmpty()
-                    && part.questionRanges.get(0)[0] == index) {
-                return part;
+    private static void writeText(XWPFDocument dest, String text) {
+        XWPFRun run = dest.createParagraph().createRun();
+        run.setText(text); run.setFontFamily("Arial"); run.setFontSize(12);
+    }
+
+    // ================================================================
+    // Groq API
+    // ================================================================
+
+    private static final int MAX_RETRIES = 3;
+
+    private static List<PartInfo> analyzeWithGroq(String text, String apiKey) {
+
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            System.out.println("ExamGenerator Groq attempt " + attempt + "/" + MAX_RETRIES);
+            try {
+                Map<String, Object> body = new HashMap<>();
+                body.put("model", MODEL);
+                body.put("max_tokens", 6000);
+                body.put("temperature", 0);
+                body.put("messages", List.of(
+                        Map.of("role", "system", "content", SYSTEM_PROMPT),
+                        Map.of("role", "user",   "content", text)
+                ));
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(API_URL))
+                        .timeout(Duration.ofSeconds(90))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + apiKey)
+                        .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body)))
+                        .build();
+
+                HttpResponse<String> resp =
+                        HTTP_CLIENT.send(req, HttpResponse.BodyHandlers.ofString());
+
+                if (resp.statusCode() == 429) {
+                    System.err.println("Rate limited — waiting 5s...");
+                    Thread.sleep(5000);
+                    continue;
+                }
+                if (resp.statusCode() != 200) {
+                    System.err.println("Groq error " + resp.statusCode());
+                    Thread.sleep(2000L * attempt);
+                    continue;
+                }
+
+                String content = MAPPER.readTree(resp.body())
+                        .path("choices").get(0).path("message").path("content").asText().trim();
+
+                System.out.println("Groq response: " +
+                        content.substring(0, Math.min(300, content.length())));
+
+                // Validate completeness — VPN can truncate responses
+                String clean = content
+                        .replaceAll("(?s)```json\\s*", "")
+                        .replaceAll("(?s)```\\s*", "").trim();
+
+                if (!clean.startsWith("[") || !clean.endsWith("]")) {
+                    System.err.println("Truncated JSON on attempt " + attempt + " — retrying...");
+                    Thread.sleep(2000L * attempt);
+                    continue;
+                }
+
+                List<PartInfo> parts = parseJson(content);
+                if (parts == null || parts.isEmpty()) {
+                    System.err.println("Empty result on attempt " + attempt + " — retrying...");
+                    Thread.sleep(2000L * attempt);
+                    continue;
+                }
+
+                System.out.println("Success on attempt " + attempt + " — "
+                        + parts.size() + " parts found.");
+                return parts;
+
+            } catch (java.net.http.HttpTimeoutException e) {
+                System.err.println("Timeout on attempt " + attempt + " (VPN slow) — retrying...");
+                try { Thread.sleep(3000L * attempt); } catch (InterruptedException ignored) {}
+            } catch (Exception e) {
+                System.err.println("Attempt " + attempt + " failed: " + e.getMessage());
+                try { Thread.sleep(2000L * attempt); } catch (InterruptedException ignored) {}
             }
         }
+
+        System.err.println("All " + MAX_RETRIES + " attempts failed.");
         return null;
     }
 
-    // ----------------------------------------------------------------
-    // Data class
-    // ----------------------------------------------------------------
+    private static List<PartInfo> parseJson(String json) {
+        List<PartInfo> parts = new ArrayList<>();
+        try {
+            json = json.replaceAll("(?s)```json\\s*", "").replaceAll("(?s)```\\s*", "").trim();
+            JsonNode arr = MAPPER.readTree(json);
+            if (!arr.isArray()) return null;
+            for (JsonNode pn : arr) {
+                PartInfo part = new PartInfo();
+                part.title = pn.path("partTitle").asText("");
+                for (JsonNode qn : pn.path("questions")) {
+                    QuestionInfo q = new QuestionInfo();
+                    q.stemText = qn.path("stem").asText("").trim();
+                    q.type     = qn.path("type").asText("DESCRIPTIVE").trim().toUpperCase();
+                    for (JsonNode opt : qn.path("options")) {
+                        String t = opt.asText().trim();
+                        if (!t.isBlank()) q.optionTexts.add(t);
+                    }
+                    if (!q.stemText.isBlank()) part.questions.add(q);
+                }
+                if (!part.questions.isEmpty()) parts.add(part);
+            }
+        } catch (Exception e) { System.err.println("JSON parse failed: " + e.getMessage()); return null; }
+        return parts;
+    }
+
+    private static boolean shouldInclude(String type, Model model) {
+        return switch (type) {
+            case "MCQ"  -> model.isMCQ();
+            case "TF"   -> model.isTrueFalse();
+            case "BLANK"-> model.isBlank();
+            default     -> model.isDes();
+        };
+    }
+
+    // ================================================================
+    // Data classes
+    // ================================================================
+
+    private static class ParaInfo {
+        int     origIndex;
+        String  rawText;
+        boolean hasImage;
+        String  displayText;
+
+        ParaInfo(int origIndex, String rawText, boolean hasImage) {
+            this.origIndex   = origIndex;
+            this.rawText     = rawText;
+            this.hasImage    = hasImage;
+            this.displayText = rawText;
+        }
+    }
 
     private static class PartInfo {
         String title = "";
-        List<int[]> questionRanges = new ArrayList<>();
+        List<QuestionInfo> questions = new ArrayList<>();
+    }
+
+    private static class QuestionInfo {
+        String        type          = "DESCRIPTIVE";
+        String        stemText      = "";
+        List<String>  optionTexts   = new ArrayList<>();
+        int           stemParaIdx   = -1;
+        List<Integer> optionParaIdxs = new ArrayList<>();
     }
 }

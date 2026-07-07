@@ -2,6 +2,8 @@ package org.example;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 
 public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
 
@@ -11,7 +13,6 @@ public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
     private ImageIcon[] icons = new ImageIcon[4];
     private ImageIcon[] scaled = new ImageIcon[4];
 
-
     private JLabel[] questionTypeLabels = {
 
             new JLabel("Multiple Choice"),
@@ -20,12 +21,17 @@ public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
             new JLabel("Descriptive"),
     };
 
+    private MyCheckBox mcq = new MyCheckBox();
+    private MyCheckBox trueFalse = new MyCheckBox();
+    private MyCheckBox blank = new MyCheckBox();
+    private MyCheckBox des = new MyCheckBox();
+
     private MyCheckBox[] checkBoxes = {
 
-            new MyCheckBox(),
-            new MyCheckBox(),
-            new MyCheckBox(),
-            new MyCheckBox(),
+            mcq,
+            trueFalse,
+            blank,
+            des
     };
 
 
@@ -34,6 +40,20 @@ public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
 
         this.model = model;
         loadImages();
+        setPanelProperties();
+        setLayout(null);
+        addComponentToPanel();
+        setLabels();
+        setCheckBoxes();
+        handleEvent();
+    }
+
+    public void createPanel(Graphics2D g2) {
+        g2.setColor(new Color(217, 217, 217));
+        g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+    }
+
+    public void setPanelProperties() {
 
         model.setQuestionTypePanelWidth(model.getLoadQuestionBoxWidth());
         model.setQuestionTypePanelHeight(model.getLoadQuestionBoxHeight());
@@ -44,15 +64,6 @@ public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
                 model.getLoadQuestionBoxHeight()
         );
 
-        setLayout(null);
-        addComponentToPanel();
-        setLabels();
-        setCheckBoxes();
-    }
-
-    public void createPanel(Graphics2D g2) {
-        g2.setColor(new Color(217, 217, 217));
-        g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
     }
 
     public void addComponentToPanel() {
@@ -67,6 +78,15 @@ public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
         for(MyCheckBox checkBox: checkBoxes) {
             add(checkBox);
         }
+
+    }
+
+    public void handleEvent(){
+
+        mcq.addItemListener(e -> model.setMCQ(mcq.isSelected()));
+        trueFalse.addItemListener(e -> model.setTrueFalse(trueFalse.isSelected()));
+        blank.addItemListener(e -> model.setBlank(blank.isSelected()));
+        des.addItemListener(e -> model.setDes(des.isSelected()));
 
     }
 
@@ -98,9 +118,11 @@ public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
 
         int offsetY = 90;
         for(MyCheckBox checkBox:  checkBoxes) {
+
             checkBox.setBounds(10, offsetY, 30, 30);
             offsetY += 40;
         }
+
     }
 
     public void loadImages() {
@@ -127,6 +149,7 @@ public class QuestionTypePanel extends JPanel implements DashBoardInnerPanel{
                 scaled[i - 1] = null;
             }
         }
+
     }
 
     public void setTitleLabelFont(JLabel title){

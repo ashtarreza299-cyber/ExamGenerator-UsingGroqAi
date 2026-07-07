@@ -3,7 +3,7 @@ package org.example;
 import javax.swing.*;
 import java.awt.*;
 
-public class QuestionPreviewPanel extends JPanel implements ModelListener {
+public class QuestionPreviewPanel extends JPanel {
 
     private JLabel title = new JLabel("Question Preview");
 
@@ -24,6 +24,19 @@ public class QuestionPreviewPanel extends JPanel implements ModelListener {
 
         previewer = new QuestionPreviewer(model);
 
+        setPanelProperties();
+        setTitle();
+        setButtons();
+        setPageLabel();
+        previewer.setBounds(10, 60, getWidth() - 20, getHeight() - 70);
+        addComponents();
+        updatePageLabel();
+        handleEvent();
+        model.addModelListener(() -> SwingUtilities.invokeLater(this::refreshPreview));
+    }
+
+    private void setPanelProperties() {
+
         setBounds(
                 model.getDistributionBoxX(),
                 model.getDistributionBoxHeight() + 10,
@@ -33,10 +46,15 @@ public class QuestionPreviewPanel extends JPanel implements ModelListener {
 
         setBackground(new Color(230, 230, 230));
         setLayout(null);
+    }
 
+    private void setTitle() {
         // Title
         title.setFont(new Font("Arial", Font.BOLD, 20));
         title.setBounds(10, 10, 200, 40);
+    }
+
+    private void setButtons() {
 
         // Buttons
         next.setText(">");
@@ -45,33 +63,24 @@ public class QuestionPreviewPanel extends JPanel implements ModelListener {
         next.setBounds(280, 10, 50, 40);
         previous.setBounds(190, 10, 50, 40);
 
+    }
+
+    private void setPageLabel() {
         // Page label
         pageLabel.setFont(new Font("Arial", Font.BOLD, 14));
         pageLabel.setBounds(200, 10, 120, 40);
         pageLabel.setHorizontalAlignment(SwingConstants.CENTER);
+    }
 
-        // Previewer
-        previewer.setBounds(
-                10,
-                60,
-                getWidth() - 20,
-                getHeight() - 70
-        );
-
+    private void addComponents() {
         add(title);
         add(previous);
         add(pageLabel);
         add(next);
         add(previewer);
+    }
 
-        // initial label
-        updatePageLabel();
-
-        // register for model changes so pageLabel and preview update when questions load
-        model.addModelListener(this);
-        // initial preview
-        refreshPreview();
-
+    private void handleEvent() {
         // NEXT
         next.addActionListener(e -> {
 
@@ -98,25 +107,13 @@ public class QuestionPreviewPanel extends JPanel implements ModelListener {
     }
 
     public void refreshPreview() {
-        // Recompute layout of preview controls based on current size
-        // Buttons on the right
-        int btnWidth = 50;
-        int spacing = 10;
-        next.setBounds(getWidth() - btnWidth - spacing, 10, btnWidth, 40);
-        previous.setBounds(getWidth() - (2 * btnWidth) - (2 * spacing), 10, btnWidth, 40);
-        pageLabel.setBounds(getWidth() - (3 * btnWidth) - (3 * spacing), 10, 120, 40);
-
-        // Previewer occupies remaining area
-        previewer.setBounds(10, 60, Math.max(100, getWidth() - 20), Math.max(100, getHeight() - 70));
 
         previewer.removeAll();
         previewer.setQuestion();
 
         currentIndex = 0;
 
-        if (previewer.getComponentCount() > 0) {
-            previewer.getCardLayout().first(previewer);
-        }
+        previewer.getCardLayout().first(previewer);
 
         updatePageLabel();
 
@@ -132,15 +129,6 @@ public class QuestionPreviewPanel extends JPanel implements ModelListener {
             pageLabel.setText("0 / 0");
         } else {
             pageLabel.setText((currentIndex + 1) + " / " + total);
-        }
-    }
-
-    @Override
-    public void modelChanged() {
-        if (javax.swing.SwingUtilities.isEventDispatchThread()) {
-            refreshPreview();
-        } else {
-            javax.swing.SwingUtilities.invokeLater(this::refreshPreview);
         }
     }
 }

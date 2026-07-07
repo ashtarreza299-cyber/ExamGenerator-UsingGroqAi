@@ -26,18 +26,20 @@ public class RoundedFileChooserField extends JPanel {
         textField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         textField.setOpaque(false);
 
-        // BROWSE BUTTON
         browseButton = new JButton("Browse");
+
         browseButton.setFocusPainted(false);
-        browseButton.setForeground(Color.WHITE);
         browseButton.setBackground(new Color(0, 120, 255));
+        browseButton.setForeground(Color.WHITE);
         browseButton.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
         browseButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
 
-        // SINGLE CORRECT ACTION LISTENER
+        browseButton.setFocusPainted(false);
+        browseButton.setContentAreaFilled(false);
+        browseButton.setOpaque(true);
+
         browseButton.addActionListener(e -> openFileChooser());
 
-        // CONTAINER
         JPanel container = new RoundedPanel(18, new BorderLayout());
         container.setBorder(BorderFactory.createLineBorder(new Color(210, 210, 210)));
         container.setBackground(Color.WHITE);

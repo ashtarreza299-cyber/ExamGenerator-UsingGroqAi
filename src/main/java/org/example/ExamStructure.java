@@ -3,11 +3,7 @@ package org.example;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Holds the full parsed structure of an exam Word file:
- *   - header lines (university name, date, student name field, etc.)
- *   - parts (each part has a title and a list of questions)
- */
+
 public class ExamStructure {
 
     /** Lines that appear before the first question part (university info, name fields, etc.) */
@@ -15,10 +11,6 @@ public class ExamStructure {
 
     /** The exam parts in order (Part One: MCQ, Part Two: Descriptive, etc.) */
     private List<ExamPart> parts = new ArrayList<>();
-
-    // ----------------------------------------------------------------
-    // Inner classes
-    // ----------------------------------------------------------------
 
     public static class ExamPart {
 

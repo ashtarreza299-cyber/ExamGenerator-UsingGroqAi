@@ -11,13 +11,14 @@ import java.util.List;
 
 public class LoadQuestionPanel extends JPanel implements DashBoardInnerPanel {
 
-    private final JLabel loadQuestionLabel     = new JLabel("1. Load Question");
+    private final JLabel loadQuestionLabel         = new JLabel("1. Load Question");
     private final JLabel loadQuestionFromWordLabel = new JLabel("Load question from word file");
 
-    private final ImageIcon wordIcon = new ImageIcon(
-            "D:\\learn\\LeetCode.com\\ExamGUI\\src\\main\\java\\org\\example\\Image\\2.png");
-    private final ImageIcon wordScaledIcon = new ImageIcon(
-            wordIcon.getImage().getScaledInstance(30, 30, Image.SCALE_SMOOTH));
+
+    private final Image word =  new ImageIcon(
+            getClass().getResource("/Image/word.png")).
+            getImage().getScaledInstance(50, 30, Image.SCALE_SMOOTH
+            );
 
     private File wordFile;
     private final MyButton browseButton = new MyButton();
@@ -30,9 +31,7 @@ public class LoadQuestionPanel extends JPanel implements DashBoardInnerPanel {
     private final Model model;
 
     public LoadQuestionPanel(Model model) {
-
         this.model = model;
-
         setPanelProperties();
         setLayout(null);
         setLabels();
@@ -52,7 +51,6 @@ public class LoadQuestionPanel extends JPanel implements DashBoardInnerPanel {
                 model.getLoadQuestionBoxWidth(),
                 model.getLoadQuestionBoxHeight()
         );
-
         browseButton.setText("Browse");
         browseButton.setBounds(getWidth() - 110, getHeight() - 50, 100, 40);
     }
@@ -75,57 +73,81 @@ public class LoadQuestionPanel extends JPanel implements DashBoardInnerPanel {
         JLabel fileSizeLabel = new JLabel();
 
         fileInfoLabel.setBounds(WORD_BOX_X,      WORD_BOX_Y, WORD_BOX_WIDTH, WORD_BOX_HEIGHT);
-        fileSizeLabel.setBounds(WORD_BOX_X + 40, WORD_BOX_Y, WORD_BOX_WIDTH, WORD_BOX_HEIGHT);
+        fileSizeLabel.setBounds(WORD_BOX_X + 50, WORD_BOX_Y, WORD_BOX_WIDTH, WORD_BOX_HEIGHT);
 
         add(fileInfoLabel);
         add(fileSizeLabel);
 
         browseButton.addActionListener((ActionEvent e) -> {
 
-            // 1. Open file chooser
+            // 1. File chooser
             JFileChooser chooser = new JFileChooser();
             int result = chooser.showOpenDialog(this);
-
-            // 2. Do nothing if user cancelled
             if (result != JFileChooser.APPROVE_OPTION) return;
 
             wordFile = chooser.getSelectedFile();
             model.setSelectedFile(wordFile);
 
-            // 3. Parse and classify questions (Groq online / tags offline)
-            List<Question> questions = QuestionParser.parse(wordFile, model);
-            System.out.println("============ Total Questions Loaded: " + questions.size());
-
-            // 4. Store in model — this is the single source of truth
-            model.setQuestions(questions);
-
-            // 5. Update file info UI
-            DecimalFormat df = new DecimalFormat("#.##");
-            double fileSize = wordFile.length() / 1024.0;
-
-            fileInfoLabel.setIcon(wordScaledIcon);
-            fileInfoLabel.setText(wordFile.getName());
-            setTextLabelFont(fileInfoLabel);
-            fileInfoLabel.setBorder(BorderFactory.createEmptyBorder(10, 5, 5, 10));
-            fileInfoLabel.setVerticalTextPosition(SwingConstants.TOP);
-            fileInfoLabel.setHorizontalTextPosition(SwingConstants.RIGHT);
-            fileInfoLabel.setHorizontalAlignment(JLabel.LEFT);
-            fileInfoLabel.setVerticalAlignment(JLabel.TOP);
-            fileInfoLabel.setIconTextGap(10);
-
-            fileSizeLabel.setText(df.format(fileSize) + " KB");
-            setTextLabelFont(fileSizeLabel);
-
-            // 6. Trigger graph repaint
-            model.setDrawGraph(true);
-
+            // 2. Show loading message
+            fileInfoLabel.setText("Analyzing with AI...");
+            fileInfoLabel.setIcon(null);
             revalidate();
             repaint();
 
-            SwingUtilities.invokeLater(() -> {
-                Window w = SwingUtilities.getWindowAncestor(this);
-                if (w != null) w.repaint();
-            });
+            // 3. Extract questions in background so UI doesn't freeze
+            SwingWorker<List<Question>, Void> worker = new SwingWorker<>() {
+
+                @Override
+                protected List<Question> doInBackground() {
+                    // QuestionExtractor uses Groq online, tags offline
+                    return QuestionExtractor.extract(wordFile, model);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        List<Question> questions = get();
+
+                        System.out.println("Total questions loaded: " + questions.size());
+                        model.setQuestions(questions);
+
+                        // Update file info UI
+                        DecimalFormat df = new DecimalFormat("#.##");
+                        double fileSize = wordFile.length() / 1024.0;
+
+                        fileInfoLabel.setIcon(new ImageIcon(word));
+                        fileInfoLabel.setText(wordFile.getName());
+                        setTextLabelFont(fileInfoLabel);
+                        fileInfoLabel.setBorder(
+                                BorderFactory.createEmptyBorder(10, 5, 5, 10));
+                        fileInfoLabel.setVerticalTextPosition(SwingConstants.TOP);
+                        fileInfoLabel.setHorizontalTextPosition(SwingConstants.RIGHT);
+                        fileInfoLabel.setHorizontalAlignment(JLabel.LEFT);
+                        fileInfoLabel.setVerticalAlignment(JLabel.TOP);
+                        fileInfoLabel.setIconTextGap(10);
+
+                        fileSizeLabel.setText(df.format(fileSize) + " KB");
+                        setTextLabelFont(fileSizeLabel);
+
+                        model.setDrawGraph(true);
+                        revalidate();
+                        repaint();
+
+                        SwingUtilities.invokeLater(() -> {
+                            Window w = SwingUtilities.getWindowAncestor(
+                                    LoadQuestionPanel.this);
+                            if (w != null) w.repaint();
+                        });
+
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                        JOptionPane.showMessageDialog(LoadQuestionPanel.this,
+                                "Error loading file: " + ex.getMessage());
+                    }
+                }
+            };
+
+            worker.execute();
         });
     }
 
@@ -150,5 +172,4 @@ public class LoadQuestionPanel extends JPanel implements DashBoardInnerPanel {
         Graphics2D g2 = (Graphics2D) g;
         createPanel(g2);
     }
-
 }

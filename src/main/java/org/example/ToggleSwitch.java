@@ -2,8 +2,6 @@ package org.example;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ItemEvent;
-
 public class ToggleSwitch extends JToggleButton implements ExamComponent {
 
     private Color onColor = new Color(0, 122, 255);   // iOS blue
@@ -50,28 +48,5 @@ public class ToggleSwitch extends JToggleButton implements ExamComponent {
         g2.dispose();
     }
 
-    public static void main(String[] args) {
 
-        JFrame frame = new JFrame("Toggle Switch Demo");
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(300, 200);
-        frame.setLayout(new FlowLayout());
-
-        ToggleSwitch toggle = new ToggleSwitch();
-
-        JLabel status = new JLabel("OFF");
-
-        toggle.addItemListener(e -> {
-            if (e.getStateChange() == ItemEvent.SELECTED) {
-                status.setText("ON");
-            } else {
-                status.setText("OFF");
-            }
-        });
-
-        frame.add(toggle);
-        frame.add(status);
-
-        frame.setVisible(true);
-    }
 }

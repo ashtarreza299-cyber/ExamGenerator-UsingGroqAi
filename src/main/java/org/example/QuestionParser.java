@@ -7,88 +7,169 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
-/**
- * Parses a .docx file into a list of Question objects.
- *
- * Strategy
- * --------
- * Questions are separated by blank lines (or lines that are purely whitespace).
- * Each non-empty block is handed to QuestionClassifier, which decides the type
- * automatically — no [M] / [D] / [T] / [B] tags are needed.
- *
- * Word document format expected:
- * ─────────────────────────────
- * What is the capital of France?
- * A) London
- * B) Berlin
- * C) Paris
- * D) Madrid
- *                          ← blank paragraph separates questions
- * The sky is blue. (True or False)
- *                          ← blank paragraph
- * The ________ is the powerhouse of the cell.
- *                          ← blank paragraph
- * Explain the water cycle in detail.
- */
+
 public class QuestionParser {
 
-    /**
-     * Parse every question from the given .docx file.
-     *
-     * @param file   the Word document to read
-     * @param model  shared model (passed through to MultipleChoiceQuestion)
-     * @return       list of classified Question objects, never null
-     */
+    private static final Set<String> KNOWN_TAGS = Set.of(
+            "[M]", "[D]", "[B]", "[T]", "[T/F]"
+    );
+
     public static List<Question> parse(File file, Model model) {
 
         List<Question> questions = new ArrayList<>();
+        List<String> lines = readLines(file);
+        if (lines.isEmpty()) return questions;
 
-        try (FileInputStream fis = new FileInputStream(file);
-             XWPFDocument doc = new XWPFDocument(fis)) {
-
-            List<String> blockLines = new ArrayList<>();
-
-            for (XWPFParagraph para : doc.getParagraphs()) {
-
-                String line = para.getText();
-
-                if (line == null || line.isBlank()) {
-                    // Blank paragraph = end of one question block
-                    flushBlock(blockLines, questions, model);
-                    blockLines.clear();
-                } else {
-                    blockLines.add(line);
-                }
-            }
-
-            // Flush the last block (file may not end with a blank line)
-            flushBlock(blockLines, questions, model);
-
-        } catch (Exception e) {
-            e.printStackTrace();
+        if (NetworkUtils.isOnline()) {
+            parseOnline(lines, questions, model);
+        } else {
+            parseOffline(lines, questions, model);
         }
 
         return questions;
     }
 
-    // ---------------------------------------------------------------
-    // Private helpers
-    // ---------------------------------------------------------------
+    private static void parseOnline(List<String> lines, List<Question> out, Model model) {
+        List<String> block = new ArrayList<>();
 
-    /**
-     * Join the accumulated lines into one raw text block, classify it,
-     * and add the resulting Question to the output list.
-     */
-    private static void flushBlock(List<String> lines,
-                                   List<Question> out,
-                                   Model model) {
+        for (String line : lines) {
+            if (line.isBlank()) {
+                flushOnlineBlock(block, out, model);
+                block.clear();
+            } else {
+                block.add(line);
+            }
+        }
+        flushOnlineBlock(block, out, model);
+    }
+
+    private static void flushOnlineBlock(List<String> lines, List<Question> out, Model model) {
+        if (lines.isEmpty()) return;
+        String raw = String.join("\n", lines).trim();
+        if (raw.isBlank()) return;
+        Question q = QuestionClassifier.classify(raw, model);
+        if (q != null) out.add(q);
+    }
+
+    private static void parseOffline(List<String> lines, List<Question> out, Model model) {
+
+        String currentTag  = null;
+        List<String> block = new ArrayList<>();
+
+        for (String line : lines) {
+
+            String trimmed = line.trim();
+
+            // Always skip blank lines offline
+            if (trimmed.isBlank()) continue;
+
+            // Check if line STARTS with a known tag
+            String foundTag    = extractTag(trimmed);
+            String afterTag    = extractAfterTag(trimmed);
+
+            if (foundTag != null) {
+
+                // Flush previous block first
+                if (currentTag != null) {
+                    flushTaggedBlock(currentTag, block, out, model);
+                    block.clear();
+                }
+
+                currentTag = foundTag;
+
+                // If there is text after the tag on the same line, add it to the block
+                // e.g. "[M] What is Java?" → afterTag = "What is Java?"
+                if (!afterTag.isBlank()) {
+                    block.add(afterTag);
+                }
+
+            } else {
+                // Regular content line — add to current block
+                block.add(trimmed);
+            }
+        }
+
+        // Flush the last block
+        if (currentTag != null) {
+            flushTaggedBlock(currentTag, block, out, model);
+        }
+    }
+
+    private static void flushTaggedBlock(String tag, List<String> lines, List<Question> out, Model model) {
         if (lines.isEmpty()) return;
 
-        String rawBlock = String.join("\n", lines).trim();
-        if (rawBlock.isBlank()) return;
+        switch (tag) {
 
-        Question q = QuestionClassifier.classify(rawBlock, model);
-        if (q != null) out.add(q);
+            case "[M]" -> {
+                String stem = lines.get(0);
+                List<String> options = new ArrayList<>();
+                for (int i = 1; i < lines.size(); i++) {
+                    String opt = lines.get(i).trim();
+                    if (!opt.isBlank()) {
+                        // Strip A) B) 1. etc prefix if present
+                        opt = opt.replaceFirst(
+                                "(?i)^([A-Ea-e]|[1-5])[.)\\]]\\s+", "").trim();
+                        options.add(opt);
+                    }
+                }
+                out.add(new MultipleChoiceQuestion(stem, options, model));
+            }
+
+            case "[T]", "[T/F]" -> {
+                // First content line = question text
+                // "True" / "False" lines that follow are ignored
+                out.add(new TrueFalseQuestion(lines.get(0)));
+            }
+
+            case "[B]" -> {
+                out.add(new BlankSpaceQuestion(lines.get(0)));
+            }
+
+            case "[D]" -> {
+                out.add(new DescriptiveQuestion(lines.get(0)));
+            }
+
+            default -> System.err.println("Unknown tag: " + tag);
+        }
+    }
+
+    private static String extractTag(String line) {
+        for (String tag : KNOWN_TAGS) {
+            if (line.toUpperCase().startsWith(tag)) {
+                return tag;
+            }
+        }
+        return null;
+    }
+
+    private static String extractAfterTag(String line) {
+        for (String tag : KNOWN_TAGS) {
+            if (line.toUpperCase().startsWith(tag)) {
+                return line.substring(tag.length()).trim();
+            }
+        }
+        return "";
+    }
+
+    private static List<String> readLines(File file) {
+
+        List<String> lines = new ArrayList<>();
+
+        try (FileInputStream fis = new FileInputStream(file);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+
+            for (XWPFParagraph para : doc.getParagraphs()) {
+                String text = para.getText();
+                lines.add(text == null ? "" : text);
+            }
+
+        } catch (Exception e) {
+            System.err.println("QuestionParser: could not read file — "
+                    + e.getMessage());
+        }
+
+        return lines;
     }
 }

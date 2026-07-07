@@ -36,7 +36,7 @@ public class QuestionShuffler {
 
                 blank.add(q);
 
-            } else if (q instanceof DesceiptiveQuestion) {
+            } else if (q instanceof DescriptiveQuestion) {
 
                 des.add(q);
             }

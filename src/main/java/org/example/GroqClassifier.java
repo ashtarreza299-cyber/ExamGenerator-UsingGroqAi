@@ -12,16 +12,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Sends question blocks to Groq AI for classification.
- * Groq is free and requires no payment — just a free account at console.groq.com
- */
+
+
 public class GroqClassifier {
 
     private static final String API_URL =
             "https://api.groq.com/openai/v1/chat/completions";
 
-    private static final String MODEL = "llama3-8b-8192"; // Free Groq model
+    private static final String MODEL = "llama-3.1-8b-instant"; // Free Groq model
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -38,9 +36,6 @@ public class GroqClassifier {
             "  DESCRIPTIVE — open-ended / essay question\n" +
             "Reply with the label only. No explanation. No punctuation.";
 
-    // ----------------------------------------------------------------
-    // Verify a key is valid by sending a tiny test request
-    // ----------------------------------------------------------------
 
     public static boolean verifyKey(String apiKey) {
         try {
@@ -51,10 +46,6 @@ public class GroqClassifier {
         }
     }
 
-    // ----------------------------------------------------------------
-    // Classify a single question block
-    // ----------------------------------------------------------------
-
     public static String classify(String text, String apiKey) {
         try {
             return callGroq(text, apiKey);
@@ -63,10 +54,6 @@ public class GroqClassifier {
             return null; // Caller will fall back to tags
         }
     }
-
-    // ----------------------------------------------------------------
-    // Core HTTP call
-    // ----------------------------------------------------------------
 
     private static String callGroq(String text, String apiKey) throws Exception {
 

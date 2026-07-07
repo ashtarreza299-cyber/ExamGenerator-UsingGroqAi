@@ -1,9 +1,10 @@
 package org.example;
 
-import org.example.Image.LoadQuestionPanel;
-
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+
 
 public class DashBoardPanel extends ProgramViewPanel {
 
@@ -32,18 +33,45 @@ public class DashBoardPanel extends ProgramViewPanel {
 
     public void addComponent() {
 
+        ExamSettingPanel settingPanel = new ExamSettingPanel(model);
+
+        settingPanel.setPreferredSize(
+                new Dimension(
+                        model.getExamSettingBoxWidth(),
+                        400
+                )
+        );
+
+        JScrollPane scrollPane = new JScrollPane(settingPanel);
+
+        scrollPane.setBounds(
+                model.getExamSettingBoxX(),
+                model.getExamSettingBoxY(),
+                model.getExamSettingBoxWidth(),
+                model.getExamSettingBoxHeight())
+        ;
+
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.setBorder(null);
+        scrollPane.setBackground(new Color(217, 217, 217));
+        scrollPane.getViewport().setBackground(new Color(217, 217, 217));
+
         add(dashboardLabel);
         add(desLabel);
         add(generateButton);
         add(new LoadQuestionPanel(model));
-        add(new ExamSettingPanel(model));
+        add(scrollPane);
         add(new QuestionTypePanel(model));
         add(new OutputSetting(model));
     }
 
     @Override
     public void createPanel(){
-        setBounds(model.getSideBarWidth() + 10, 0, model.getDashBoardWidth(), model.getPanelHeight());
+
+        model.setDashBoardX(model.getSideBarWidth() + 10);
+        model.setDashBoardY(0);
+
+        setBounds(model.getDashBoardX(), model.getDashBoardY(), model.getDashBoardWidth(), model.getPanelHeight());
     }
 
     public void setTitleLabelFont(JLabel title){
@@ -69,6 +97,26 @@ public class DashBoardPanel extends ProgramViewPanel {
         generateButton.setIcon(scaledGenerateIcon);
         generateButton.setText("Generate Exam");
         generateButton.setBounds(model.getDashBoardWidth() - model.getSideBarButtonsWidth() - 20, 30, model.getSideBarButtonsWidth(), 50);
+
+
+        generateButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+
+                if(model.isShufflingOn()){
+                    if(model.isMcqShuffled() || model.isBlankSpaceShuffled()
+                            || model.isDesShuffled() || model.isBlankSpaceShuffled()){
+                        generateExam();
+                    }else{
+                        JOptionPane.showMessageDialog(null, "Since the Shuffle Question Option is selected\nAt least on shuffling options must be selected to generate the exam",
+                                "Enable Question Shuffle Option", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                }else
+                    generateExam();
+            }
+        });
+
+
     }
 
     public void setDashboardBounds(Graphics2D g2){
@@ -86,6 +134,11 @@ public class DashBoardPanel extends ProgramViewPanel {
         setDashboardBounds(g2);
 
     }
+
+    private void generateExam() {
+        ExamGenerator.generate(this, model);
+    }
+
 
 
 }

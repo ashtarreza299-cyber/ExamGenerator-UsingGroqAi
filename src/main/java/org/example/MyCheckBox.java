@@ -2,11 +2,11 @@ package org.example;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ItemEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
 
-public class MyCheckBox extends JComponent implements ExamComponent {
+public class MyCheckBox extends JCheckBox implements ExamComponent {
 
     private boolean selected;
 
@@ -30,13 +30,23 @@ public class MyCheckBox extends JComponent implements ExamComponent {
         return selected;
     }
 
+    @Override
     public void setSelected(boolean selected) {
+
+        boolean old = this.selected;
         this.selected = selected;
+
         repaint();
 
-        firePropertyChange("selected", !selected, selected);
+        fireItemStateChanged(
+                new ItemEvent(
+                        this,
+                        ItemEvent.ITEM_STATE_CHANGED,
+                        this,
+                        selected ? ItemEvent.SELECTED : ItemEvent.DESELECTED
+                )
+        );
     }
-
     @Override
     public void paintComponent(Graphics g) {
 
