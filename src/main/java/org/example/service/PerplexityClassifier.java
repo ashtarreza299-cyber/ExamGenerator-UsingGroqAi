@@ -15,12 +15,12 @@ import java.util.Map;
 
 
 
-public class GroqClassifier {
+public class PerplexityClassifier {
 
     private static final String API_URL =
-            "https://api.groq.com/openai/v1/chat/completions";
+            "https://api.perplexity.ai/chat/completions";
 
-    private static final String MODEL = "llama-3.1-8b-instant"; // Free Groq model
+    private static final String MODEL = "perplexity-decider-flash-v1.3"; // Perplexity Decider Flash
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -40,7 +40,7 @@ public class GroqClassifier {
 
     public static boolean verifyKey(String apiKey) {
         try {
-            String label = callGroq("What is 2+2?", apiKey);
+            String label = callPerplexity("What is 2+2?", apiKey);
             return label != null; // Any valid response means the key works
         } catch (Exception e) {
             return false;
@@ -49,14 +49,14 @@ public class GroqClassifier {
 
     public static String classify(String text, String apiKey) {
         try {
-            return callGroq(text, apiKey);
+            return callPerplexity(text, apiKey);
         } catch (Exception e) {
-            System.err.println("Groq error: " + e.getMessage());
+            System.err.println("Perplexity error: " + e.getMessage());
             return null; // Caller will fall back to tags
         }
     }
 
-    private static String callGroq(String text, String apiKey) throws Exception {
+    private static String callPerplexity(String text, String apiKey) throws Exception {
 
         Map<String, Object> body = new HashMap<>();
         body.put("model", MODEL);
@@ -81,7 +81,7 @@ public class GroqClassifier {
                 HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200) {
-            System.err.println("Groq HTTP " + response.statusCode());
+            System.err.println("Perplexity HTTP " + response.statusCode());
             return null;
         }
 

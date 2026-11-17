@@ -1,7 +1,7 @@
 # ExamGUI
 
 A Swing desktop application that detects questions from a Microsoft Word file
-(using the Groq AI API when online, with an offline tagging fallback),
+(using the Perplexity AI API — Decider Flash V1.3 — when online, with an offline tagging fallback),
 classifies them by type (multiple-choice, true/false, blank-space, descriptive),
 lets you configure an exam structure, and generates shuffled exam papers —
 a different paper for each student.
@@ -28,9 +28,9 @@ ExamGUI/
 │       │   │
 │       │   ├── service/             # Business logic: parsing, AI, generation
 │       │   │   ├── QuestionParser.java           # Parses .docx into Question objects
-│       │   │   ├── QuestionExtractor.java        # Online (Groq) / offline extraction
+│       │   │   ├── QuestionExtractor.java        # Online (Perplexity) / offline extraction
 │       │   │   ├── QuestionClassifier.java       # Offline heuristic classification
-│       │   │   ├── GroqClassifier.java           # Groq API HTTP client
+│       │   │   ├── PerplexityClassifier.java    # Perplexity API HTTP client
 │       │   │   ├── ExamStructureParser.java      # Parses exam-structure config
 │       │   │   ├── ExamBuilder.java              # Ordered exam list + shuffling rules
 │       │   │   ├── ExamGenerator.java            # Writes generated exam files (POI)
@@ -94,7 +94,7 @@ mvn compile        # build
 mvn exec:java -Dexec.mainClass=org.example.Main   # run (or run org.example.Main from your IDE)
 ```
 
-Set the Groq API key when prompted at first launch (stored in
+Set the Perplexity API key when prompted at first launch (stored in
 `~/.examgenerator/config.properties`), or export `GROQ_API_KEY`.
 
 ## Adding New Classes

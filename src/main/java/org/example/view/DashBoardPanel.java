@@ -11,7 +11,7 @@ import org.example.model.TrueFalseQuestion;
 import org.example.service.ExamGenerator;
 import org.example.service.ExamStructureParser;
 import org.example.service.GenerateExam;
-import org.example.service.GroqClassifier;
+import org.example.service.PerplexityClassifier;
 import org.example.service.QuestionClassifier;
 import org.example.service.QuestionExtractor;
 import org.example.service.QuestionParser;

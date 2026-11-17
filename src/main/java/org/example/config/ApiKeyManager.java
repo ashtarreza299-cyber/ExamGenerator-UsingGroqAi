@@ -1,7 +1,7 @@
 package org.example.config;
 
 import org.example.config.NetworkUtils;
-import org.example.service.GroqClassifier;
+import org.example.service.PerplexityClassifier;
 
 import javax.swing.*;
 import java.awt.*;
@@ -13,13 +13,21 @@ public class ApiKeyManager {
 
     private static final String CONFIG_DIR  = System.getProperty("user.home") + "/.examgenerator";
     private static final String CONFIG_FILE = CONFIG_DIR + "/config.properties";
-    private static final String KEY_NAME    = "GROQ_API_KEY";
+    private static final String KEY_NAME    = "PERPLEXITY_API_KEY";
+    private static final String OLD_KEY_NAME = "GROQ_API_KEY";
 
     public static String initialize() {
 
         String saved = loadKey();
 
-        if (saved != null) {
+        if (saved == null) {
+            // One-time migration: reuse a previously saved Groq key if present
+            saved = loadLegacyKey();
+            if (saved != null) {
+                saveKey(saved);
+                return saved;
+            }
+        } else {
             return saved; // Already set up — silent load
         }
 
@@ -36,6 +44,21 @@ public class ApiKeyManager {
             Properties props = new Properties();
             props.load(fis);
             String key = props.getProperty(KEY_NAME, "").trim();
+            return key.isBlank() ? null : key;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String loadLegacyKey() {
+
+        File f = new File(CONFIG_FILE);
+        if (!f.exists()) return null;
+
+        try (FileInputStream fis = new FileInputStream(f)) {
+            Properties props = new Properties();
+            props.load(fis);
+            String key = props.getProperty(OLD_KEY_NAME, "").trim();
             return key.isBlank() ? null : key;
         } catch (Exception e) {
             return null;
@@ -66,11 +89,11 @@ public class ApiKeyManager {
         // Instructions
         JLabel info = new JLabel("<html>" +
                 "<b>Welcome to Exam Generator!</b><br><br>" +
-                "This app uses Groq AI to detect question types automatically.<br>" +
-                "You need a <b>free</b> Groq API key to use this feature.<br><br>" +
-                "To get your free key:<br>" +
-                "1. Go to <b>console.groq.com</b><br>" +
-                "2. Sign up with your email (free, no credit card)<br>" +
+                "This app uses Perplexity AI (Decider Flash V1.3) to detect question types automatically.<br>" +
+                "You need a Perplexity API key to use this feature.<br><br>" +
+                "To get your key:<br>" +
+                "1. Go to <b>perplexity.ai/settings/api</b><br>" +
+                "2. Sign up with your email<br>" +
                 "3. Click <b>API Keys</b> → Create new key<br>" +
                 "4. Paste it below<br><br>" +
                 "</html>");
@@ -102,7 +125,7 @@ public class ApiKeyManager {
         panel.add(buttonPanel);
 
         // Create dialog
-        JDialog dialog = new JDialog((Frame) null, "Setup — Groq API Key", true);
+        JDialog dialog = new JDialog((Frame) null, "Setup — Perplexity API Key", true);
         dialog.setContentPane(panel);
         dialog.setSize(480, 340);
         dialog.setLocationRelativeTo(null);
@@ -128,7 +151,7 @@ public class ApiKeyManager {
             SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
                 @Override
                 protected Boolean doInBackground() {
-                    return GroqClassifier.verifyKey(key);
+                    return PerplexityClassifier.verifyKey(key);
                 }
 
                 @Override

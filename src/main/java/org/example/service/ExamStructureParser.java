@@ -26,8 +26,8 @@ import java.util.*;
 
 public class ExamStructureParser {
 
-    private static final String API_URL = "https://api.groq.com/openai/v1/chat/completions";
-    private static final String MODEL   = "llama-3.1-8b-instant";
+    private static final String API_URL = "https://api.perplexity.ai/chat/completions";
+    private static final String MODEL   = "perplexity-decider-flash-v1.3";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -76,10 +76,10 @@ public class ExamStructureParser {
             return null;
         }
 
-        // 2. Send to Groq
-        String json = callGroq(rawText, apiKey);
+        // 2. Send to Perplexity
+        String json = callPerplexity(rawText, apiKey);
         if (json == null) {
-            System.err.println("ExamStructureParser: Groq returned null.");
+            System.err.println("ExamStructureParser: Perplexity returned null.");
             return null;
         }
 
@@ -109,7 +109,7 @@ public class ExamStructureParser {
     }
 
 
-    private static String callGroq(String examText, String apiKey) {
+    private static String callPerplexity(String examText, String apiKey) {
 
         try {
             Map<String, Object> body = new HashMap<>();
@@ -135,7 +135,7 @@ public class ExamStructureParser {
                     HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                System.err.println("Groq error " + response.statusCode()
+                System.err.println("Perplexity error " + response.statusCode()
                         + ": " + response.body());
                 return null;
             }
@@ -149,7 +149,7 @@ public class ExamStructureParser {
                        .trim();
 
         } catch (Exception e) {
-            System.err.println("ExamStructureParser Groq call failed: " + e.getMessage());
+            System.err.println("ExamStructureParser Perplexity call failed: " + e.getMessage());
             return null;
         }
     }
@@ -158,7 +158,7 @@ public class ExamStructureParser {
     private static ExamStructure parseJson(String json) {
 
         try {
-            // Strip markdown code fences if Groq adds them despite instructions
+            // Strip markdown code fences if the model adds them despite instructions
             json = json.replaceAll("(?s)```json\\s*", "")
                        .replaceAll("(?s)```\\s*", "")
                        .trim();

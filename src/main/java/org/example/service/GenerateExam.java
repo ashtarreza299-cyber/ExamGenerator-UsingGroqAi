@@ -47,7 +47,7 @@ public class GenerateExam {
         String apiKey = ApiKeyManager.loadKey();
         if (apiKey == null) {
             JOptionPane.showMessageDialog(parent,
-                    "Groq API key not found!\nPlease restart the app to set up your key.");
+                    "Perplexity API key not found!\nPlease restart the app to set up your key.");
             return;
         }
 
@@ -57,7 +57,7 @@ public class GenerateExam {
             return;
         }
 
-        // ── Parse exam structure via Groq ──────────────────────────
+        // ── Parse exam structure via Perplexity ──────────────────────────
         JOptionPane.showMessageDialog(parent,
                 "Analyzing exam structure with AI...\nThis may take a few seconds.");
 
