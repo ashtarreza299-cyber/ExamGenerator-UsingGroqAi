@@ -14,10 +14,10 @@ import java.util.List;
 
 public class QuestionClassifier {
 
-    private static String groqApiKey = null;
+    private static String apiKey = null;
 
     public static void setApiKey(String key) {
-        groqApiKey = key;
+        apiKey = key;
     }
 
     public static Question classify(String rawText, Model model) {
@@ -25,8 +25,8 @@ public class QuestionClassifier {
         if (rawText == null || rawText.isBlank()) return null;
         String text = rawText.trim();
 
-        if (groqApiKey != null) {
-            String label = GroqClassifier.classify(text, groqApiKey);
+        if (apiKey != null) {
+            String label = PerplexityClassifier.classify(text, apiKey);
             if (label != null) return buildQuestion(label, text, model);
         }
         return classifyWithTags(text, model);

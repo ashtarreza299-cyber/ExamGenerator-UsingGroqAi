@@ -26,14 +26,14 @@ import java.time.Duration;
 import java.util.*;
 
 /**
- * Sends the raw Word file text to Groq and gets back ONLY
+ * Sends the raw Word file text to Perplexity and gets back ONLY
  * the real exam questions with their types.
- * Falls back to tag-based parsing if offline or Groq fails.
+ * Falls back to tag-based parsing if offline or Perplexity fails.
  */
 public class QuestionExtractor {
 
-    private static final String API_URL = "https://api.groq.com/openai/v1/chat/completions";
-    private static final String MODEL   = "llama-3.3-70b-versatile";
+    private static final String API_URL = "https://api.perplexity.ai/chat/completions";
+    private static final String MODEL   = "perplexity-decider-flash-v1.3";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -87,22 +87,22 @@ public class QuestionExtractor {
         String apiKey = ApiKeyManager.loadKey();
 
         if (apiKey != null && NetworkUtils.isOnline()) {
-            List<Question> questions = extractWithGroq(rawText, apiKey, model);
+            List<Question> questions = extractWithPerplexity(rawText, apiKey, model);
             if (questions != null && !questions.isEmpty()) {
-                System.out.println("Groq extracted " + questions.size() + " questions.");
+                System.out.println("Perplexity extracted " + questions.size() + " questions.");
                 return questions;
             }
-            System.err.println("Groq extraction failed — falling back to tag parser.");
+            System.err.println("Perplexity extraction failed — falling back to tag parser.");
         }
 
         return QuestionParser.parse(file, model);
     }
 
     // ----------------------------------------------------------------
-    // Groq extraction
+    // Perplexity extraction
     // ----------------------------------------------------------------
 
-    private static List<Question> extractWithGroq(String rawText, String apiKey, Model model) {
+    private static List<Question> extractWithPerplexity(String rawText, String apiKey, Model model) {
         try {
             Map<String, Object> body = new HashMap<>();
             body.put("model", MODEL);
@@ -127,7 +127,7 @@ public class QuestionExtractor {
                     HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                System.err.println("Groq error " + response.statusCode());
+                System.err.println("Perplexity error " + response.statusCode());
                 return null;
             }
 
@@ -139,12 +139,12 @@ public class QuestionExtractor {
                     .asText()
                     .trim();
 
-            System.out.println("Groq raw: " + content.substring(0, Math.min(300, content.length())));
+            System.out.println("Perplexity raw: " + content.substring(0, Math.min(300, content.length())));
 
             return parseJsonQuestions(content, model);
 
         } catch (Exception e) {
-            System.err.println("QuestionExtractor Groq call failed: " + e.getMessage());
+            System.err.println("QuestionExtractor Perplexity call failed: " + e.getMessage());
             return null;
         }
     }

@@ -27,8 +27,8 @@ import java.util.regex.*;
 
 public class ExamGenerator {
 
-    private static final String API_URL = "https://api.groq.com/openai/v1/chat/completions";
-    private static final String MODEL   = "llama-3.1-8b-instant"; // Fast model — works well on VPN
+    private static final String API_URL = "https://api.perplexity.ai/chat/completions";
+    private static final String MODEL   = "perplexity-decider-flash-v1.3"; // Decider Flash — fast classification/generation model
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -82,7 +82,7 @@ public class ExamGenerator {
         String apiKey = ApiKeyManager.loadKey();
         if (apiKey == null) {
             JOptionPane.showMessageDialog(parent,
-                    "Groq API key not found!\nPlease restart the app."); return;
+                    "Perplexity API key not found!\nPlease restart the app."); return;
         }
 
         JOptionPane.showMessageDialog(parent,
@@ -99,16 +99,16 @@ public class ExamGenerator {
                 // ── 2. Preprocess → expand tabs, mark images ──────
                 List<ParaInfo> processed = preprocess(paras);
 
-                // ── 3. Build text for Groq ────────────────────────
+                // ── 3. Build text for the model ────────────────────────
                 StringBuilder sb = new StringBuilder();
                 for (ParaInfo p : processed) {
                     if (!p.displayText.isBlank()) sb.append(p.displayText).append("\n");
                 }
 
-                System.out.println("=== Sending to Groq ===\n" + sb.toString().substring(0, Math.min(1000, sb.length())));
+                System.out.println("=== Sending to Perplexity ===\n" + sb.toString().substring(0, Math.min(1000, sb.length())));
 
-                // ── 4. Ask Groq ───────────────────────────────────
-                List<PartInfo> parts = analyzeWithGroq(sb.toString(), apiKey);
+                // ── 4. Ask the model ───────────────────────────────────
+                List<PartInfo> parts = analyzeWithPerplexity(sb.toString(), apiKey);
                 if (parts == null || parts.isEmpty()) {
                     SwingUtilities.invokeLater(() ->
                             JOptionPane.showMessageDialog(parent,
@@ -116,10 +116,10 @@ public class ExamGenerator {
                     return null;
                 }
 
-                System.out.println("Groq found " + parts.size() + " parts, " +
+                System.out.println("Model found " + parts.size() + " parts, " +
                         parts.stream().mapToInt(p -> p.questions.size()).sum() + " questions");
 
-                // ── 5. Match Groq text → original paragraph indices ──
+                // ── 5. Match model text → original paragraph indices ──
                 for (PartInfo part : parts) {
                     for (QuestionInfo q : part.questions) {
                         q.stemParaIdx = findParaIndex(processed, q.stemText, -1);
@@ -585,15 +585,15 @@ public class ExamGenerator {
     }
 
     // ================================================================
-    // Groq API
+    // Perplexity API
     // ================================================================
 
     private static final int MAX_RETRIES = 3;
 
-    private static List<PartInfo> analyzeWithGroq(String text, String apiKey) {
+    private static List<PartInfo> analyzeWithPerplexity(String text, String apiKey) {
 
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            System.out.println("ExamGenerator Groq attempt " + attempt + "/" + MAX_RETRIES);
+            System.out.println("ExamGenerator Perplexity attempt " + attempt + "/" + MAX_RETRIES);
             try {
                 Map<String, Object> body = new HashMap<>();
                 body.put("model", MODEL);
@@ -620,7 +620,7 @@ public class ExamGenerator {
                     continue;
                 }
                 if (resp.statusCode() != 200) {
-                    System.err.println("Groq error " + resp.statusCode());
+                    System.err.println("Perplexity error " + resp.statusCode());
                     Thread.sleep(2000L * attempt);
                     continue;
                 }
@@ -628,7 +628,7 @@ public class ExamGenerator {
                 String content = MAPPER.readTree(resp.body())
                         .path("choices").get(0).path("message").path("content").asText().trim();
 
-                System.out.println("Groq response: " +
+                System.out.println("Perplexity response: " +
                         content.substring(0, Math.min(300, content.length())));
 
                 // Validate completeness — VPN can truncate responses
