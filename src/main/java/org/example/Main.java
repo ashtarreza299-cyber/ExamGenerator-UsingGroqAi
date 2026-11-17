@@ -1,5 +1,35 @@
 package org.example;
 
+import org.example.config.ApiKeyManager;
+import org.example.config.NetworkUtils;
+import org.example.model.BlankSpaceQuestion;
+import org.example.model.DescriptiveQuestion;
+import org.example.model.ExamStructure;
+import org.example.model.Model;
+import org.example.model.ModelListener;
+import org.example.model.MultipleChoiceQuestion;
+import org.example.model.Question;
+import org.example.model.TrueFalseQuestion;
+import org.example.service.ExamGenerator;
+import org.example.service.ExamStructureParser;
+import org.example.service.GenerateExam;
+import org.example.service.GroqClassifier;
+import org.example.service.QuestionClassifier;
+import org.example.service.QuestionExtractor;
+import org.example.service.QuestionParser;
+import org.example.service.QuestionShuffler;
+import org.example.view.DashBoardInnerPanel;
+import org.example.view.DashBoardPanel;
+import org.example.view.ExamSettingPanel;
+import org.example.view.LoadQuestionPanel;
+import org.example.view.OutputSetting;
+import org.example.view.ProgramViewPanel;
+import org.example.view.QuestionDistributionPanel;
+import org.example.view.QuestionPreviewPanel;
+import org.example.view.QuestionPreviewer;
+import org.example.view.QuestionTypePanel;
+import org.example.view.SideBarPanel;
+
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
@@ -82,47 +112,6 @@ public class Main extends JFrame {
 
     }
 
-    public static List<Question> buildExam(List<Question> questions, Model model) {
-        List<Question> mcqList = new ArrayList<>();
-        List<Question> tfList = new ArrayList<>();
-        List<Question> blankList = new ArrayList<>();
-        List<Question> desList = new ArrayList<>();
 
-
-        for (Question question : questions) {
-            if (question instanceof MultipleChoiceQuestion) {
-                mcqList.add(question);
-            } else if (question instanceof TrueFalseQuestion) {
-                tfList.add(question);
-            } else if (question instanceof BlankSpaceQuestion) {
-                blankList.add(question);
-            } else if (question instanceof DescriptiveQuestion) {
-                desList.add(question);
-            }
-        }
-
-        if (model.isShufflingOn()) {
-            Collections.shuffle(mcqList);
-            Collections.shuffle(tfList);
-            Collections.shuffle(blankList);
-            Collections.shuffle(desList);
-        }
-
-        if (model.isOptionShufflingOn()) {
-            for (Question question : mcqList) {
-                if (question instanceof MultipleChoiceQuestion) {
-                    ((MultipleChoiceQuestion) question).shuffleOption();
-                }
-            }
-        }
-
-        List<Question> finalExamList = new ArrayList<>();
-        finalExamList.addAll(mcqList);
-        finalExamList.addAll(tfList);
-        finalExamList.addAll(blankList);
-        finalExamList.addAll(desList);
-
-        return finalExamList;
-    }
 
 }
